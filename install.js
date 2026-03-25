@@ -14,8 +14,6 @@ const SETTINGS_FILE = path.join(CLAUDE_DIR, 'settings.json');
 const SETTINGS_BACKUP = path.join(CLAUDE_DIR, 'settings.json.claude-statusline-backup');
 const SCRIPT_DEST = path.join(CLAUDE_DIR, 'statusline.sh');
 const SCRIPT_SRC = path.join(__dirname, '.claude', 'statusline.sh');
-const FETCH_DEST = path.join(CLAUDE_DIR, 'fetch-usage.sh');
-const FETCH_SRC = path.join(__dirname, '.claude', 'fetch-usage.sh');
 
 // ─── Ensure ~/.claude exists ─────────────────────────────────────────────────
 if (!fs.existsSync(CLAUDE_DIR)) {
@@ -34,9 +32,6 @@ fs.copyFileSync(SCRIPT_SRC, SCRIPT_DEST);
 fs.chmodSync(SCRIPT_DEST, 0o755);
 console.log(`✔  Script installed at: ${SCRIPT_DEST}`);
 
-fs.copyFileSync(FETCH_SRC, FETCH_DEST);
-fs.chmodSync(FETCH_DEST, 0o755);
-console.log(`✔  Script installed at: ${FETCH_DEST}`);
 
 // ─── Read existing settings.json (or start empty) ────────────────────────────
 let settings = {};

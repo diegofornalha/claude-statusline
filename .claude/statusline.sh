@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # Claude Code status line
-# Displays token usage, model, cost, and plan limits in the terminal status bar.
+# Displays model, context usage, plan limits, and account info.
 
 export LC_NUMERIC=C
 
 input=$(cat)
 
-# ─── Fetch plan usage (session and weekly) ────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-usage_data=$(bash "${SCRIPT_DIR}/fetch-usage.sh" 2>/dev/null)
-
-# ─── Email + Assento (cache separado de 10min para evitar rate limit) ─────────
-PROFILE_CACHE="/tmp/claude-profile-cache.json"
+# ─── Email + Assento (cache de 10min, OAuth profile API) ─────────────────────
+CACHE_DIR="${HOME}/.cache/claude-statusline"
+PROFILE_CACHE="${CACHE_DIR}/profile.json"
 PROFILE_CACHE_MAX=600
+
+[ -d "$CACHE_DIR" ] || (umask 077 && mkdir -p "$CACHE_DIR")
+
 email=""
 assento=""
 if [ -f "$PROFILE_CACHE" ]; then
-  cache_age=$(( $(date +%s) - $(stat -c %Y "$PROFILE_CACHE" 2>/dev/null || echo 0) ))
+  cache_age=$(( $(date +%s) - $(stat -f %m "$PROFILE_CACHE" 2>/dev/null || stat -c %Y "$PROFILE_CACHE" 2>/dev/null || echo 0) ))
   if [ "$cache_age" -lt "$PROFILE_CACHE_MAX" ]; then
     email=$(jq -r '.email // empty' "$PROFILE_CACHE" 2>/dev/null)
     assento=$(jq -r '.assento // empty' "$PROFILE_CACHE" 2>/dev/null)
@@ -24,9 +24,13 @@ if [ -f "$PROFILE_CACHE" ]; then
 fi
 if [ -z "$email" ]; then
   creds=""
-  [ -f "$HOME/.claude/.credentials.json" ] && creds=$(cat "$HOME/.claude/.credentials.json" 2>/dev/null)
+  if command -v security &>/dev/null; then
+    creds=$(security find-generic-password -s "Claude Code-credentials" -a "$(whoami)" -w 2>/dev/null)
+    [ -z "$creds" ] && creds=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)
+  fi
+  [ -z "$creds" ] && [ -f "$HOME/.claude/.credentials.json" ] && creds=$(cat "$HOME/.claude/.credentials.json" 2>/dev/null)
   if [ -n "$creds" ]; then
-    at=$(echo "$creds" | python3 -c "import sys,json;print(json.load(sys.stdin).get('claudeAiOauth',{}).get('accessToken',''))" 2>/dev/null)
+    at=$(echo "$creds" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
     if [ -n "$at" ]; then
       profile_json=$(curl -s --max-time 3 "https://api.anthropic.com/api/oauth/profile" \
         -H "Authorization: Bearer ${at}" -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
@@ -38,18 +42,15 @@ if [ -z "$email" ]; then
         assento="Padrão"
       fi
       if [ -n "$email" ]; then
-        echo "{\"email\":\"$email\",\"assento\":\"$assento\"}" > "$PROFILE_CACHE"
+        jq -n --arg e "$email" --arg a "$assento" '{email: $e, assento: $a}' > "$PROFILE_CACHE"
       fi
     fi
   fi
 fi
 
-# Returns a human-readable countdown string for a UTC ISO 8601 timestamp
+# ─── Countdown from Unix epoch timestamp ─────────────────────────────────────
 time_until_reset() {
-  local resets_at="$1"
-  local reset_ts
-  reset_ts=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "${resets_at%%.*}" +%s 2>/dev/null || \
-             date -d "$resets_at" +%s 2>/dev/null)
+  local reset_ts="$1"
   local now_ts diff_mins
   now_ts=$(date +%s)
   diff_mins=$(( (reset_ts - now_ts) / 60 ))
@@ -66,41 +67,7 @@ time_until_reset() {
   fi
 }
 
-# Current session usage (five_hour)
-session_pct=$(echo "$usage_data" | jq -r '.five_hour.utilization // empty' 2>/dev/null)
-session_str=""
-if [ -n "$session_pct" ]; then
-  session_int=$(printf "%.0f" "$session_pct")
-  session_resets_at=$(echo "$usage_data" | jq -r '.five_hour.resets_at // empty' 2>/dev/null)
-  session_time=$([ -n "$session_resets_at" ] && time_until_reset "$session_resets_at" || echo "")
-  session_str="Sessão: ${session_int}%$([ -n "$session_time" ] && echo " · ${session_time}")"
-fi
-
-# Weekly limits (seven_day)
-weekly_pct=$(echo "$usage_data" | jq -r '.seven_day.utilization // empty' 2>/dev/null)
-weekly_str=""
-if [ -n "$weekly_pct" ]; then
-  weekly_int=$(printf "%.0f" "$weekly_pct")
-  weekly_resets_at=$(echo "$usage_data" | jq -r '.seven_day.resets_at // empty' 2>/dev/null)
-  weekly_time=$([ -n "$weekly_resets_at" ] && time_until_reset "$weekly_resets_at" || echo "")
-  weekly_str="Semanal: ${weekly_int}%$([ -n "$weekly_time" ] && echo " · ${weekly_time}")"
-fi
-
-# ─── Parse context window data from Claude Code stdin ─────────────────────────
-model=$(echo "$input" | jq -r '.model.display_name // "Unknown model"')
-total_in=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
-total_out=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
-total_tokens=$((total_in + total_out))
-used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
-ctx_tokens=$(echo "$input" | jq -r '
-  (.context_window.current_usage.input_tokens // 0) +
-  (.context_window.current_usage.output_tokens // 0) +
-  (.context_window.current_usage.cache_creation_input_tokens // 0) +
-  (.context_window.current_usage.cache_read_input_tokens // 0)
-' 2>/dev/null)
-cost=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
-
-# Format numbers with k/M suffixes
+# ─── Format numbers with k/M suffixes ────────────────────────────────────────
 fmt() {
   awk "BEGIN {
     n = $1
@@ -110,10 +77,40 @@ fmt() {
   }"
 }
 
-ctx_int=$(printf "%.0f" "$used_pct")
-cost_fmt=$(printf "%.2f" "$cost")
+# ─── Parse stdin JSON ────────────────────────────────────────────────────────
+model=$(echo "$input" | jq -r '.model.display_name // empty')
+used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
+ctx_size=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
+ctx_tokens=$(echo "$input" | jq -r '
+  (.context_window.current_usage.input_tokens // 0) +
+  (.context_window.current_usage.output_tokens // 0) +
+  (.context_window.current_usage.cache_creation_input_tokens // 0) +
+  (.context_window.current_usage.cache_read_input_tokens // 0)
+' 2>/dev/null)
 
-# ─── Build segments (colored + plain text for measuring) ─────────────────────
+# Rate limits (from stdin — no API call needed)
+session_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
+session_resets=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty' 2>/dev/null)
+weekly_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' 2>/dev/null)
+weekly_resets=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty' 2>/dev/null)
+
+ctx_int=$(printf "%.0f" "$used_pct")
+
+session_str=""
+if [ -n "$session_pct" ]; then
+  session_int=$(printf "%.0f" "$session_pct")
+  session_time=$([ -n "$session_resets" ] && time_until_reset "$session_resets" || echo "")
+  session_str="Sessão: ${session_int}%$([ -n "$session_time" ] && echo " · ${session_time}")"
+fi
+
+weekly_str=""
+if [ -n "$weekly_pct" ]; then
+  weekly_int=$(printf "%.0f" "$weekly_pct")
+  weekly_time=$([ -n "$weekly_resets" ] && time_until_reset "$weekly_resets" || echo "")
+  weekly_str="Semanal: ${weekly_int}%$([ -n "$weekly_time" ] && echo " · ${weekly_time}")"
+fi
+
+# ─── Build segments ──────────────────────────────────────────────────────────
 seg_count=0
 add_seg() {
   seg_colored[$seg_count]="$1"
@@ -121,12 +118,37 @@ add_seg() {
   seg_count=$((seg_count + 1))
 }
 
+# PS1 prompt
+ps1_user=$(whoami)
+ps1_dir=$(basename "$(echo "$input" | jq -r '.workspace.current_dir // empty')")
+[ -z "$ps1_dir" ] && ps1_dir=$(basename "$(pwd)")
+ps1_label="${ps1_user}@agents ${ps1_dir}"
+add_seg "$(printf "\033[0;32m%s\033[0m" "$ps1_label")" "$ps1_label"
+
+# Model
+if [ -n "$model" ]; then
+  add_seg "$(printf "\033[0;33m%s\033[0m" "$model")" "$model"
+fi
+
+# Context window
+if [ "$ctx_int" -gt 0 ] 2>/dev/null; then
+  ctx_total=${ctx_size:-0}
+  [ "$ctx_total" -eq 0 ] && ctx_total=$((ctx_tokens * 100 / (ctx_int > 0 ? ctx_int : 1)))
+  ctx_label="Ctx: ${ctx_int}% · $(fmt $ctx_tokens)/$(fmt $ctx_total)"
+  add_seg "$(printf "\033[0;36m%s\033[0m" "$ctx_label")" "$ctx_label"
+fi
+
+# Email + assento
 if [ -n "$email" ]; then
   email_label="$email"
   [ -n "$assento" ] && email_label="${email} (${assento})"
   add_seg "$(printf "\033[0;33m%s\033[0m" "$email_label")" "$email_label"
 fi
+
+# Session limit
 [ -n "$session_str" ] && add_seg "$(printf "\033[0;36m%s\033[0m" "$session_str")" "$session_str"
+
+# Weekly limit
 [ -n "$weekly_str" ] && add_seg "$(printf "\033[0;35m%s\033[0m" "$weekly_str")" "$weekly_str"
 
 # ─── Detect terminal width ───────────────────────────────────────────────────
@@ -134,10 +156,9 @@ term_width=${COLUMNS:-0}
 [ "$term_width" -eq 0 ] 2>/dev/null && term_width=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
 [ -z "$term_width" ] || [ "$term_width" -eq 0 ] 2>/dev/null && term_width=$(tput cols </dev/tty 2>/dev/null)
 [ -z "$term_width" ] || [ "$term_width" -eq 0 ] 2>/dev/null && term_width=200
-# Claude Code UI has padding — subtract margin so we wrap before it truncates
 term_width=$((term_width - 6))
 
-# ─── Greedy line wrapping: fit as many segments as possible per line ──────────
+# ─── Greedy line wrapping ────────────────────────────────────────────────────
 sep=" | "
 sep_len=3
 output=""
@@ -157,7 +178,6 @@ for i in $(seq 0 $((seg_count - 1))); do
   fi
 
   if ! $first_on_line && [ $((line_len + needed)) -gt "$term_width" ]; then
-    # Current segment doesn't fit — start a new line
     [ -n "$output" ] && output="${output}\n"
     output="${output}${line}"
     line="$colored"
@@ -175,7 +195,6 @@ for i in $(seq 0 $((seg_count - 1))); do
   fi
 done
 
-# Flush last line
 [ -n "$line" ] && { [ -n "$output" ] && output="${output}\n${line}" || output="$line"; }
 
 printf "%b" "$output"

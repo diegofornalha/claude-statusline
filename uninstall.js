@@ -12,7 +12,6 @@ const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const SETTINGS_FILE = path.join(CLAUDE_DIR, 'settings.json');
 const SETTINGS_BACKUP = path.join(CLAUDE_DIR, 'settings.json.claude-statusline-backup');
 const SCRIPT_DEST = path.join(CLAUDE_DIR, 'statusline.sh');
-const FETCH_DEST = path.join(CLAUDE_DIR, 'fetch-usage.sh');
 
 // ─── Check if installed ───────────────────────────────────────────────────────
 if (!fs.existsSync(SETTINGS_BACKUP)) {
@@ -29,10 +28,6 @@ console.log('✔  settings.json restored to original.');
 if (fs.existsSync(SCRIPT_DEST)) {
   fs.unlinkSync(SCRIPT_DEST);
   console.log('✔  statusline.sh removed.');
-}
-if (fs.existsSync(FETCH_DEST)) {
-  fs.unlinkSync(FETCH_DEST);
-  console.log('✔  fetch-usage.sh removed.');
 }
 
 console.log('\n✅  Uninstalled. Claude Code restored to default.');
