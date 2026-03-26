@@ -107,7 +107,7 @@ weekly_str=""
 if [ -n "$weekly_pct" ]; then
   weekly_int=$(printf "%.0f" "$weekly_pct")
   weekly_time=$([ -n "$weekly_resets" ] && time_until_reset "$weekly_resets" || echo "")
-  weekly_str="Semanal: ${weekly_int}%$([ -n "$weekly_time" ] && echo " · ${weekly_time}")"
+  weekly_str="Semanal: ${weekly_int}%"
 fi
 
 # ─── Build segments ──────────────────────────────────────────────────────────
@@ -117,13 +117,6 @@ add_seg() {
   seg_plain[$seg_count]="$2"
   seg_count=$((seg_count + 1))
 }
-
-# PS1 prompt
-ps1_user=$(whoami)
-ps1_dir=$(basename "$(echo "$input" | jq -r '.workspace.current_dir // empty')")
-[ -z "$ps1_dir" ] && ps1_dir=$(basename "$(pwd)")
-ps1_label="${ps1_user}@agents ${ps1_dir}"
-add_seg "$(printf "\033[0;32m%s\033[0m" "$ps1_label")" "$ps1_label"
 
 # Model
 if [ -n "$model" ]; then
