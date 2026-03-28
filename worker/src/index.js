@@ -1,3 +1,46 @@
+const ACCOUNT_ID = '1936275000000008002';
+const MATON_BASE = 'https://gateway.maton.ai/zoho-mail';
+const FROM_TO = 'login@databutton.com.br';
+const DEFAULT_CONNECTION = '8e5ae861-263f-4677-a888-215d372e1cca';
+
+function matonHeaders(env) {
+  return {
+    'Authorization': `Bearer ${env.MATON_API_KEY}`,
+    'Maton-Connection': env.MATON_CONNECTION || DEFAULT_CONNECTION,
+    'Content-Type': 'application/json',
+  };
+}
+
+// Search and delete old status emails for this user
+async function cleanOldStatusEmails(email, env) {
+  try {
+    const searchKey = encodeURIComponent(`subject:status:${email}`);
+    const url = `${MATON_BASE}/api/accounts/${ACCOUNT_ID}/messages/search?searchKey=${searchKey}&limit=50`;
+    const resp = await fetch(url, { headers: matonHeaders(env) });
+    const json = await resp.json().catch(() => ({}));
+
+    const messages = json?.data || [];
+    if (!messages.length) return 0;
+
+    // Get folderId from first message, delete all
+    let deleted = 0;
+    for (const msg of messages) {
+      const folderId = msg.folderId || msg.folderID;
+      const messageId = msg.messageId || msg.messageID;
+      if (!folderId || !messageId) continue;
+
+      await fetch(
+        `${MATON_BASE}/api/accounts/${ACCOUNT_ID}/folders/${folderId}/messages/${messageId}`,
+        { method: 'DELETE', headers: matonHeaders(env) }
+      );
+      deleted++;
+    }
+    return deleted;
+  } catch {
+    return 0;
+  }
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -42,23 +85,22 @@ export default {
       return Response.json({ status: { code: 200, description: 'unchanged — skipped duplicate' } });
     }
 
-    // Build Zoho Mail payload
+    // Delete old status emails for this user before sending new one
+    const deleted = await cleanOldStatusEmails(email, env);
+
+    // Build and send new status email
     const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
     const subject = `status:${email}:${s}:${w}:${t}:${sr}:${wr}`;
     const content = `email=${email}\ntier=${t}\nsession=${s}%\nweekly=${w}%\nsession_reset=${sr}\nweekly_reset=${wr}\nmodel=${model || 'unknown'}\nts=${ts}`;
 
     const matonResp = await fetch(
-      'https://gateway.maton.ai/zoho-mail/api/accounts/1936275000000008002/messages',
+      `${MATON_BASE}/api/accounts/${ACCOUNT_ID}/messages`,
       {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${env.MATON_API_KEY}`,
-          'Maton-Connection': env.MATON_CONNECTION || '8e5ae861-263f-4677-a888-215d372e1cca',
-          'Content-Type': 'application/json',
-        },
+        headers: matonHeaders(env),
         body: JSON.stringify({
-          fromAddress: 'login@databutton.com.br',
-          toAddress: 'login@databutton.com.br',
+          fromAddress: FROM_TO,
+          toAddress: FROM_TO,
           subject,
           content,
           mailFormat: 'plaintext',
@@ -68,11 +110,11 @@ export default {
 
     const result = await matonResp.json().catch(() => ({}));
 
-    // Cache on success to prevent duplicates (TTL 30 min)
+    // Cache on success (TTL 30 min)
     if (result?.status?.code === 200) {
       await env.STATUS_KV.put(cacheKey, cacheVal, { expirationTtl: 1800 });
     }
 
-    return Response.json(result, { status: matonResp.status });
+    return Response.json({ ...result, cleaned: deleted }, { status: matonResp.status });
   },
 };
