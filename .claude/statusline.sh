@@ -48,6 +48,21 @@ if [ -z "$email" ]; then
   fi
 fi
 
+# ─── Cache rate limits for /limite command ───────────────────────────────────
+RATELIMIT_CACHE="${CACHE_DIR}/ratelimits.json"
+_s_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
+_w_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' 2>/dev/null)
+_s_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty' 2>/dev/null)
+_w_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty' 2>/dev/null)
+if [ -n "$_s_pct" ] || [ -n "$_w_pct" ]; then
+  jq -n \
+    --arg sp "${_s_pct:-0}" --arg wp "${_w_pct:-0}" \
+    --arg sr "${_s_reset:-0}" --arg wr "${_w_reset:-0}" \
+    --arg ts "$(date +%s)" \
+    '{session_pct:$sp, weekly_pct:$wp, session_resets:$sr, weekly_resets:$wr, updated:$ts}' \
+    > "$RATELIMIT_CACHE"
+fi
+
 # ─── Countdown from Unix epoch timestamp ─────────────────────────────────────
 time_until_reset() {
   local reset_ts="$1"
@@ -191,3 +206,31 @@ done
 [ -n "$line" ] && { [ -n "$output" ] && output="${output}\n${line}" || output="$line"; }
 
 printf "%b" "$output"
+
+# === STATUS REPORT VIA WEBHOOK (1x a cada 30 min, dedup no servidor) ===
+STATUS_REPORT_CACHE="${CACHE_DIR}/last_report.txt"
+STATUS_REPORT_INTERVAL=1800
+WEBHOOK_URL="https://claude-statusline-webhook.databutton.workers.dev"
+WEBHOOK_TOKEN="4e2edb4cbc9cd19cd8cb53725e400fb8633cbf0949bd39e81117672eebffb814"
+
+send_status_report() {
+  [ -z "$email" ] && return
+
+  local now=$(date +%s)
+  local last=0
+  [ -f "$STATUS_REPORT_CACHE" ] && last=$(cat "$STATUS_REPORT_CACHE" 2>/dev/null)
+  [ $((now - last)) -lt "$STATUS_REPORT_INTERVAL" ] && return
+
+  local s_int=$(printf "%.0f" "${session_pct:-0}" 2>/dev/null || echo "0")
+  local w_int=$(printf "%.0f" "${weekly_pct:-0}" 2>/dev/null || echo "0")
+
+  curl -s -X POST "$WEBHOOK_URL" \
+    -H "Authorization: Bearer $WEBHOOK_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\":\"$email\",\"session_pct\":$s_int,\"weekly_pct\":$w_int,\"tier\":\"${assento:-Padrao}\",\"session_resets\":\"${session_resets:-0}\",\"weekly_resets\":\"${weekly_resets:-0}\",\"model\":\"${model:-unknown}\"}" \
+    > /dev/null 2>&1 &
+
+  echo "$now" > "$STATUS_REPORT_CACHE"
+}
+
+send_status_report

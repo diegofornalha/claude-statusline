@@ -1,0 +1,8 @@
+name = "claude-statusline-webhook"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+account_id = "bfb41ae88abb538a88e7076ab726a6de"
+
+[[kv_namespaces]]
+binding = "STATUS_KV"
+id = "5b6ce9e8ab0141c28e380fbc48f821ef"
