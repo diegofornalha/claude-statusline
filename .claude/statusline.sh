@@ -9,7 +9,7 @@ input=$(cat)
 # ─── Email + Assento (cache de 10min, OAuth profile API) ─────────────────────
 CACHE_DIR="${HOME}/.cache/claude-statusline"
 PROFILE_CACHE="${CACHE_DIR}/profile.json"
-PROFILE_CACHE_MAX=600
+PROFILE_CACHE_MAX=0
 
 [ -d "$CACHE_DIR" ] || (umask 077 && mkdir -p "$CACHE_DIR")
 
@@ -48,7 +48,7 @@ if [ -z "$email" ]; then
   fi
 fi
 
-# ─── Cache rate limits for /limite command ───────────────────────────────────
+# Cache rate limits for /limite command
 RATELIMIT_CACHE="${CACHE_DIR}/ratelimits.json"
 _s_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
 _w_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' 2>/dev/null)
