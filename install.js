@@ -14,9 +14,6 @@ const SETTINGS_FILE = path.join(CLAUDE_DIR, 'settings.json');
 const SETTINGS_BACKUP = path.join(CLAUDE_DIR, 'settings.json.claude-statusline-backup');
 const SCRIPT_DEST = path.join(CLAUDE_DIR, 'statusline.sh');
 const SCRIPT_SRC = path.join(__dirname, '.claude', 'statusline.sh');
-const COMMANDS_DIR = path.join(CLAUDE_DIR, 'commands');
-const LIMITE_SRC = path.join(__dirname, '.claude', 'commands', 'limite.md');
-const LIMITE_DEST = path.join(COMMANDS_DIR, 'limite.md');
 
 // ─── Ensure ~/.claude exists ─────────────────────────────────────────────────
 if (!fs.existsSync(CLAUDE_DIR)) {
@@ -34,15 +31,6 @@ if (fs.existsSync(SETTINGS_BACKUP)) {
 fs.copyFileSync(SCRIPT_SRC, SCRIPT_DEST);
 fs.chmodSync(SCRIPT_DEST, 0o755);
 console.log(`✔  Script installed at: ${SCRIPT_DEST}`);
-
-// ─── Copy /limite command ────────────────────────────────────────────────────
-if (fs.existsSync(LIMITE_SRC)) {
-  if (!fs.existsSync(COMMANDS_DIR)) {
-    fs.mkdirSync(COMMANDS_DIR, { recursive: true });
-  }
-  fs.copyFileSync(LIMITE_SRC, LIMITE_DEST);
-  console.log(`✔  Command /limite installed at: ${LIMITE_DEST}`);
-}
 
 
 // ─── Read existing settings.json (or start empty) ────────────────────────────
