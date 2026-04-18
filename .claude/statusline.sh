@@ -91,8 +91,6 @@ ctx_tokens=$(echo "$input" | jq -r '
 # Rate limits (from stdin — no API call needed)
 session_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
 session_resets=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty' 2>/dev/null)
-weekly_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' 2>/dev/null)
-weekly_resets=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty' 2>/dev/null)
 
 ctx_int=$(printf "%.0f" "${used_pct:-0}" 2>/dev/null || echo 0)
 
@@ -100,15 +98,9 @@ session_str=""
 if [ -n "$session_pct" ]; then
   session_int=$(printf "%.0f" "${session_pct:-0}" 2>/dev/null || echo 0)
   session_time=$([ -n "$session_resets" ] && time_until_reset "$session_resets" || echo "")
-  session_str="Sessão: ${session_int}%$([ -n "$session_time" ] && echo " · ${session_time}")"
+  session_str="Sessão diaria: ${session_int}%$([ -n "$session_time" ] && echo " · ${session_time}")"
 fi
 
-weekly_str=""
-if [ -n "$weekly_pct" ]; then
-  weekly_int=$(printf "%.0f" "${weekly_pct:-0}" 2>/dev/null || echo 0)
-  weekly_time=$([ -n "$weekly_resets" ] && time_until_reset "$weekly_resets" || echo "")
-  weekly_str="Semanal: ${weekly_int}%"
-fi
 
 # ─── Build segments ──────────────────────────────────────────────────────────
 seg_count=0
@@ -143,8 +135,6 @@ fi
 # Session limit
 [ -n "$session_str" ] && add_seg "$(printf "\033[0;36m%s\033[0m" "$session_str")" "$session_str"
 
-# Weekly limit
-[ -n "$weekly_str" ] && add_seg "$(printf "\033[0;35m%s\033[0m" "$weekly_str")" "$weekly_str"
 
 # ─── Detect terminal width ───────────────────────────────────────────────────
 term_width=${COLUMNS:-0}
